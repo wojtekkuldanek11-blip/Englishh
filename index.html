@@ -98,7 +98,7 @@ const dec=s=>{s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";re
 const norm=t=>t.trim().toLowerCase().replace(/[’‘`]/g,"'").replace(/\s+/g," ");
 const GAP=/\[\[(.+?)\]\]/g;
 const fmt=d=>new Date(d).toLocaleString("pl-PL",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
-const shrink=(f,max,q)=>new Promise((ok,no)=>{const fr=new FileReader();fr.onerror=no;fr.onload=()=>{const im=new Image();im.onerror=no;im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height));const c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok({blob:()=>new Promise(r=>c.toBlob(r,'image/jpeg',q)),url:()=>c.toDataURL('image/jpeg',q)})};im.src=fr.result};fr.readAsDataURL(f)});
+const shrink=(f,max,q)=>new Promise((ok,no)=>{const fr=new FileReader();fr.onerror=no;fr.onload=()=>{const im=new Image();im.onerror=no;im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height));const c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok({blob:()=>new Promise(r=>c.toBlob(r,'image/jpeg',q)),url:()=>{const w=c.toDataURL('image/webp',q);return w.startsWith('data:image/webp')?w:c.toDataURL('image/jpeg',q)}})};im.src=fr.result};fr.readAsDataURL(f)});
 const cap=n=>{try{return window.claude&&window.claude.use?Promise.resolve(window.claude.use(n)):Promise.resolve(null)}catch(e){return Promise.resolve(null)}};
 const autoBank=e=>[...gaps(e.text).map(a=>a.split("|")[0].trim()),...(e.extra||"").split(",").map(s=>s.trim()).filter(Boolean)].join(", ");
 const EMO=["⚽","🏀","🎾","🏆","🇵🇱","🇬🇧","🇺🇸","🇫🇷","🇩🇪","🇪🇸","🇮🇹","🇸🇦","🇯🇵","🇧🇷","🍎","🍕","🍔","☕","🎵","🎬","📚","💻","📱","🚗","✈️","🏠","🌍","🌞","🌧️","❄️","🔥","💰","❤️","⭐","😀","😂","😁","😢","😱","👍","👏","🎉","🐶","🐱","🦁","🌳","⏰","🔒","🕵️","🛒","🥛","🧀","🍦","🥩"];
@@ -169,7 +169,13 @@ async function load(){
 let tmr;function save(){clearTimeout(tmr);tmr=setTimeout(async()=>{
   try{if(dbDoc)await dbDoc.set(JSON.parse(JSON.stringify(S)))}catch(e){}
   try{localStorage.setItem("luki_state",JSON.stringify(S))}catch(e){}},400)}
-function link(e){return location.href.split("#")[0]+"#u="+enc({i:e.id,t:e.title,n:e.inst,x:e.text,b:e.bank,e:e.extra,bw:e.bw,im:e.images||[]})}
+const b64u=u=>{let s="";u.forEach(b=>s+=String.fromCharCode(b));return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")};
+const unb=s=>{s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))};
+const pipe=async(u,C)=>new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new C("deflate-raw"))).arrayBuffer());
+const encz=async o=>{try{return "~"+b64u(await pipe(new TextEncoder().encode(JSON.stringify(o)),CompressionStream))}catch(e){return enc(o)}};
+const decz=async s=>s[0]==="~"?JSON.parse(new TextDecoder().decode(await pipe(unb(s.slice(1)),DecompressionStream))):dec(s);
+const small=u=>new Promise(r=>{if(!u.startsWith("data:")||u.length<9000)return r(u);const im=new Image();im.onerror=()=>r(u);im.onload=()=>{const k=Math.min(1,420/Math.max(im.width,im.height));const c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);let o=c.toDataURL("image/webp",.4);if(!o.startsWith("data:image/webp"))o=c.toDataURL("image/jpeg",.4);r(o.length<u.length?o:u)};im.src=u});
+async function link(e){const im=await Promise.all((e.images||[]).map(small));const o={i:e.id,t:e.title,n:e.inst,x:e.text,b:e.bank};if(e.bw!=null)o.bw=e.bw;else if(e.extra)o.e=e.extra;if(im.length)o.im=im;return location.href.split("#")[0]+"#u="+await encz(o)}
 function gaps(text){const a=[];text.replace(GAP,(m,x)=>{a.push(x);return m});return a}
 
 function teacher(){
@@ -243,7 +249,7 @@ function bindEditor(e){
     try{let url="",why="";step="assets";const as=await cap("assets").catch(er=>{why+="assets: "+((er&&(er.code||er.message))||er)+"; ";return null});
       let s=null;try{step="resize";s=await shrink(f,1200,0.85)}catch(er){why+="resize nie działa; "}
       if(as&&s){try{step="upload";const r=await as.upload(await s.blob());url=r.url}catch(er){why+="upload: "+((er&&(er.code||er.message))||er)+"; "}}
-      if(!url){step="inline";if(s){url=(await shrink(f,640,0.5)).url()}else{url=await new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=no;fr.readAsDataURL(f)});if(url.length>300000)throw new Error("plik za duży")}}
+      if(!url){step="inline";if(s){url=(await shrink(f,480,0.45)).url()}else{url=await new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=no;fr.readAsDataURL(f)});if(url.length>300000)throw new Error("plik za duży")}}
       (e.images=e.images||[]).push(url);save();teacher();
       if(why)$("#im").textContent="Dodano w trybie awaryjnym ("+why.trim()+")"}
     catch(z){m.textContent="Błąd na etapie "+step+": "+((z&&(z.message||z.code||z.type))||z);m.style.color="var(--bad)"}};
@@ -266,8 +272,8 @@ function bindEditor(e){
   $("#un").onclick=()=>{const m=[...e.text.matchAll(GAP)].pop();if(m){e.text=e.text.slice(0,m.index)+m[1].split("|")[0].trim()+e.text.slice(m.index+m[0].length);save();teacher()}};
   document.querySelectorAll("[data-g]").forEach(inp=>inp.onchange=()=>{const k=+inp.dataset.g;let i=0;
     e.text=e.text.replace(GAP,m=>i++===k?"[["+(inp.value.split("|").map(s=>s.trim()).filter(Boolean).join("|")||"?")+"]]":m);save();teacher()});
-  $("#gen").onclick=()=>{if(!gaps(e.text).length){alert("Dodaj przynajmniej jedną lukę.");return}
-    const l=link(e);$("#lk").innerHTML=`<div class="hint" style="margin-top:14px"><b>Link dla ucznia:</b></div><textarea class="code" readonly onclick="this.select()">${esc(l)}</textarea><div class="row"><button class="btn g" id="cl">📋 Kopiuj link</button><span class="msg" id="lm"></span></div>`;
+  $("#gen").onclick=async()=>{if(!gaps(e.text).length){alert("Dodaj przynajmniej jedną lukę.");return}
+    $("#lk").innerHTML='<div class="hint">Generuję link…</div>';const l=await link(e);$("#lk").innerHTML=`<div class="hint" style="margin-top:14px"><b>Link dla ucznia</b> (${l.length} znaków)${l.length>6000?". Link jest długi z powodu zdjęć, użyj mniejszej liczby lub mniejszych zdjęć":""}:</div><textarea class="code" readonly onclick="this.select()">${esc(l)}</textarea><div class="row"><button class="btn g" id="cl">📋 Kopiuj link</button><span class="msg" id="lm"></span></div>`;
     $("#cl").onclick=()=>{const ta=$("#lk textarea");ta.select();try{navigator.clipboard.writeText(l)}catch(z){document.execCommand("copy")}$("#lm").textContent="Skopiowano!"}};
   $("#pv").onclick=()=>{if(!gaps(e.text).length){alert("Dodaj przynajmniej jedną lukę.");return}student({i:e.id,t:e.title,n:e.inst,x:e.text,b:e.bank,e:e.extra,bw:e.bw,im:e.images||[],p:1});
     app.insertAdjacentHTML("afterbegin",`<div class="row" style="margin:0 0 12px"><button class="btn p" id="bkp">← Wróć do edycji</button></div>`);$("#bkp").onclick=teacher}
@@ -277,7 +283,7 @@ function bindEditor(e){
 /* ---------- START ---------- */
 async function init(){
   const m=location.hash.match(/^#u=(.+)$/);
-  if(m){try{student(dec(m[1]));return}catch(e){app.innerHTML=hdr("Ups","Ten link jest uszkodzony")+`<div class="card">Poproś nauczyciela o nowy link.</div>`;return}}
+  if(m){try{student(await decz(m[1]));return}catch(e){app.innerHTML=hdr("Ups","Ten link jest uszkodzony")+`<div class="card">Poproś nauczyciela o nowy link.</div>`;return}}
   let owner=true;
   try{const u=await cap("user");if(u)owner=await u.isOwner()}catch(e){}
   if(!owner){app.innerHTML=hdr("Ćwiczenia z lukami","Otwórz link otrzymany od nauczyciela")+`<div class="card">Ta strona to panel nauczyciela. Uczeń otwiera ćwiczenie przez swój link.</div>`;return}
