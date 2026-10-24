@@ -175,7 +175,13 @@ const pipe=async(u,C)=>new Uint8Array(await new Response(new Blob([u]).stream().
 const encz=async o=>{try{return "~"+b64u(await pipe(new TextEncoder().encode(JSON.stringify(o)),CompressionStream))}catch(e){return enc(o)}};
 const decz=async s=>s[0]==="~"?JSON.parse(new TextDecoder().decode(await pipe(unb(s.slice(1)),DecompressionStream))):dec(s);
 const small=u=>new Promise(r=>{if(!u.startsWith("data:")||u.length<9000)return r(u);const im=new Image();im.onerror=()=>r(u);im.onload=()=>{const k=Math.min(1,420/Math.max(im.width,im.height));const c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);let o=c.toDataURL("image/webp",.4);if(!o.startsWith("data:image/webp"))o=c.toDataURL("image/jpeg",.4);r(o.length<u.length?o:u)};im.src=u});
-async function link(e){const im=await Promise.all((e.images||[]).map(small));const o={i:e.id,t:e.title,n:e.inst,x:e.text,b:e.bank};if(e.bw!=null)o.bw=e.bw;else if(e.extra)o.e=e.extra;if(im.length)o.im=im;return location.href.split("#")[0]+"#u="+await encz(o)}
+async function link(e){const base=location.href.split("#")[0];const mk=im=>{const o={i:e.id,t:e.title,n:e.inst,x:e.text,b:e.bank};if(e.bw!=null)o.bw=e.bw;else if(e.extra)o.e=e.extra;if(im.length)o.im=im;return o};
+  const inl=base+"#u="+await encz(mk(await Promise.all((e.images||[]).map(small))));
+  if(inl.length<800)return inl;
+  try{const ac=new AbortController();const to=setTimeout(()=>ac.abort(),9000);
+    const r=await fetch("https://jsonblob.com/api/jsonBlob",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(mk(e.images||[])),signal:ac.signal});clearTimeout(to);
+    const id=r.headers.get("x-jsonblob")||(r.headers.get("location")||"").split("/").pop();if(r.ok&&id&&/^[\w-]+$/.test(id))return base+"#b="+id}catch(x){}
+  return inl}
 function gaps(text){const a=[];text.replace(GAP,(m,x)=>{a.push(x);return m});return a}
 
 function teacher(){
@@ -283,6 +289,10 @@ function bindEditor(e){
 /* ---------- START ---------- */
 async function init(){
   const m=location.hash.match(/^#u=(.+)$/);
+  const bm=location.hash.match(/^#b=([\w-]+)$/);
+  if(bm){app.innerHTML=hdr("Ładowanie…","Chwileczkę");
+    try{const r=await fetch("https://jsonblob.com/api/jsonBlob/"+bm[1],{headers:{Accept:"application/json"}});if(!r.ok)throw 0;student(await r.json());return}
+    catch(e){app.innerHTML=hdr("Ups","Nie udało się wczytać ćwiczenia")+`<div class="card">Sprawdź internet i spróbuj ponownie. Jeśli to nie pomoże, poproś nauczyciela o nowy link.</div>`;return}}
   if(m){try{student(await decz(m[1]));return}catch(e){app.innerHTML=hdr("Ups","Ten link jest uszkodzony")+`<div class="card">Poproś nauczyciela o nowy link.</div>`;return}}
   let owner=true;
   try{const u=await cap("user");if(u)owner=await u.isOwner()}catch(e){}
